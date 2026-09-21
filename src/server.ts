@@ -1,12 +1,21 @@
-import { config } from "./config/env";
-import { createApp } from "./app";
-import { startCampaignScheduler } from "./services/whatsapp/campaignWorker";
+import express from "express";
+import cors from "cors";
+import helmet from "helmet";
 
-const app = createApp();
+const app = express();
 
-startCampaignScheduler();
+app.use(cors());
+app.use(helmet());
+app.use(express.json());
 
-app.listen(config.port, () => {
-  // eslint-disable-next-line no-console
-  console.log(`Backend listening on port ${config.port} (${config.nodeEnv})`);
+// Your routes here
+// app.use("/api/...", ...);
+
+app.get("/", (_req, res) => {
+    res.json({
+        success: true,
+        message: "WhatsApp SaaS API is running"
+    });
 });
+
+export default app;
