@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "prisma generate && tsc -p tsconfig.json",
+  "buildCommand": "npm run build",
   "installCommand": "npm install",
   "framework": null,
   "functions": {
