@@ -5,9 +5,8 @@
   "description": "WhatsApp Tech Provider SaaS backend (Milestone 1)",
   "main": "dist/server.js",
   "scripts": {
-    "postinstall": "prisma generate",
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
-    "build": "prisma generate && tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
