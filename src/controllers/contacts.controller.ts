@@ -10,18 +10,23 @@ export async function listContactsHandler(req: Request, res: Response): Promise<
     return;
   }
   const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
-  const contacts = await prisma.contact.findMany({
+  const cursor = typeof req.query.cursor === "string" ? req.query.cursor : undefined;
+  const take = 50;
+  const items = await prisma.contact.findMany({
     where: {
       tenantId: req.auth.tenantId,
       ...(search
-        ? { OR: [{ phone: { contains: search } }, { name: { contains: search } }, { profileName: { contains: search } }] }
+        ? { OR: [{ phone: { startsWith: search } }, { name: { startsWith: search } }] }
         : {}),
     },
     select: { id: true, phone: true, name: true, profileName: true, email: true, tags: true, createdAt: true },
     orderBy: { createdAt: "desc" },
-    take: 100,
+    ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    take: take + 1,
   });
-  sendSuccess(res, contacts);
+  const hasMore = items.length > take;
+  const page = hasMore ? items.slice(0, take) : items;
+  sendSuccess(res, { items: page, nextCursor: hasMore ? page[page.length - 1].id : null });
 }
 
 /** POST /api/v1/contacts */

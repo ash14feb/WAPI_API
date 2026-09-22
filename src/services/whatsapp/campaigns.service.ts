@@ -85,37 +85,59 @@ export async function recipientCounts(campaignId: string) {
   return { ...counts, total };
 }
 
-export async function listCampaigns(tenantId: string) {
+export async function listCampaigns(tenantId: string, cursor?: string, limit = 25) {
+  const take = Math.min(Math.max(limit, 1), 50);
   const campaigns = await prisma.campaign.findMany({
     where: { tenantId },
     include: { template: { select: { id: true, name: true, language: true } } },
     orderBy: { createdAt: "desc" },
-    take: 100,
+    ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    take: take + 1,
   });
-  return Promise.all(
-    campaigns.map(async (c) => ({ ...c, counts: await recipientCounts(c.id) })),
-  );
+  const hasMore = campaigns.length > take;
+  const page = hasMore ? campaigns.slice(0, take) : campaigns;
+  // Single groupBy for the whole page (no per-campaign N+1).
+  const ids = page.map((c) => c.id);
+  const groups =
+    ids.length > 0
+      ? await prisma.campaignRecipient.groupBy({
+          by: ["campaignId", "status"],
+          where: { campaignId: { in: ids } },
+          _count: true,
+        })
+      : [];
+  const countsByCampaign = new Map<string, Record<string, number>>();
+  for (const c of page) countsByCampaign.set(c.id, { PENDING: 0, SENT: 0, FAILED: 0, CANCELLED: 0, total: 0 });
+  for (const g of groups) {
+    const entry = countsByCampaign.get(g.campaignId)!;
+    entry[g.status] = (entry[g.status] ?? 0) + g._count;
+    entry.total += g._count;
+  }
+  return {
+    items: page.map((c) => ({ ...c, counts: countsByCampaign.get(c.id)! })),
+    nextCursor: hasMore ? page[page.length - 1].id : null,
+  };
 }
 
-export async function getCampaign(tenantId: string, id: string) {
+export async function getCampaign(tenantId: string, id: string, recipientCursor?: string, recipientLimit = 50) {
   const campaign = await prisma.campaign.findFirst({
     where: { id, tenantId },
-    include: {
-      template: true,
-      recipients: {
-        include: {
-          contact: { select: { id: true, phone: true, name: true, profileName: true } },
-        },
-        orderBy: { createdAt: "asc" },
-        take: 500,
-      },
-    },
+    include: { template: true },
   });
   if (!campaign) throw new WhatsappServiceError("CAMPAIGN_NOT_FOUND", "Campaign not found", 404);
-  // Attach each recipient's exact message row (delivery status from messages table).
-  const messageIds = campaign.recipients
+  const take = Math.min(Math.max(recipientLimit, 1), 100);
+  const recipients = await prisma.campaignRecipient.findMany({
+    where: { campaignId: id, tenantId },
+    include: { contact: { select: { id: true, phone: true, name: true, profileName: true } } },
+    orderBy: { createdAt: "asc" },
+    ...(recipientCursor ? { cursor: { id: recipientCursor }, skip: 1 } : {}),
+    take: take + 1,
+  });
+  const hasMore = recipients.length > take;
+  const page = hasMore ? recipients.slice(0, take) : recipients;
+  const messageIds = page
     .map((r) => r.messageId)
-    .filter((id): id is string => !!id);
+    .filter((mid): mid is string => !!mid);
   const messages = messageIds.length > 0
     ? await prisma.message.findMany({
         where: { id: { in: messageIds }, tenantId },
@@ -126,10 +148,11 @@ export async function getCampaign(tenantId: string, id: string) {
   return {
     ...campaign,
     counts: await recipientCounts(campaign.id),
-    recipients: campaign.recipients.map((r) => ({
+    recipients: page.map((r) => ({
       ...r,
       message: r.messageId ? byId.get(r.messageId) ?? null : null,
     })),
+    recipientsNextCursor: hasMore ? page[page.length - 1].id : null,
   };
 }
 

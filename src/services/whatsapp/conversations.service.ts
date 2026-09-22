@@ -8,7 +8,8 @@ import type { SendMessageInput } from "../../validators/conversations.validator"
 
 const PAGE_SIZE = 50;
 
-export async function listConversations(tenantId: string, search?: string) {
+export async function listConversations(tenantId: string, search?: string, cursor?: string, limit = 25) {
+  const take = Math.min(Math.max(limit, 1), 50);
   const conversations = await prisma.conversation.findMany({
     where: {
       tenantId,
@@ -16,9 +17,9 @@ export async function listConversations(tenantId: string, search?: string) {
         ? {
             contact: {
               OR: [
-                { name: { contains: search } },
-                { phone: { contains: search } },
-                { profileName: { contains: search } },
+                { phone: { startsWith: search } },
+                { name: { startsWith: search } },
+                { profileName: { startsWith: search } },
               ],
             },
           }
@@ -27,22 +28,37 @@ export async function listConversations(tenantId: string, search?: string) {
     include: {
       contact: { select: { id: true, phone: true, name: true, profileName: true } },
       messages: { orderBy: { createdAt: "desc" }, take: 1 },
-      _count: {
-        select: { messages: { where: { direction: "INBOUND", status: "RECEIVED" } } },
-      },
     },
     orderBy: { lastMessageAt: "desc" },
-    take: PAGE_SIZE,
+    ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    take: take + 1, // fetch one extra to compute nextCursor
   });
 
-  return conversations.map((c) => ({
-    id: c.id,
-    status: c.status,
-    lastMessageAt: c.lastMessageAt,
-    contact: c.contact,
-    lastMessage: c.messages[0] ?? null,
-    unreadCount: c._count.messages,
-  }));
+  // Single aggregate for unread counts across the page (no per-row _count N+1).
+  const ids = conversations.map((c) => c.id);
+  const unreadGroups =
+    ids.length > 0
+      ? await prisma.message.groupBy({
+          by: ["conversationId"],
+          where: { tenantId, conversationId: { in: ids }, direction: "INBOUND", status: "RECEIVED" },
+          _count: true,
+        })
+      : [];
+  const unreadByConv = new Map(unreadGroups.map((g) => [g.conversationId, g._count]));
+
+  const hasMore = conversations.length > take;
+  const page = hasMore ? conversations.slice(0, take) : conversations;
+  return {
+    items: page.map((c) => ({
+      id: c.id,
+      status: c.status,
+      lastMessageAt: c.lastMessageAt,
+      contact: c.contact,
+      lastMessage: c.messages[0] ?? null,
+      unreadCount: unreadByConv.get(c.id) ?? 0,
+    })),
+    nextCursor: hasMore ? page[page.length - 1].id : null,
+  };
 }
 
 export async function getConversation(tenantId: string, id: string) {
@@ -56,13 +72,22 @@ export async function getConversation(tenantId: string, id: string) {
   return conversation;
 }
 
-export async function listMessages(tenantId: string, conversationId: string) {
-  await getConversation(tenantId, conversationId);
-  return prisma.message.findMany({
-    where: { tenantId, conversationId },
-    orderBy: { createdAt: "asc" },
-    take: 200,
+export async function listMessages(tenantId: string, conversationId: string, cursor?: string, limit = 50) {
+  const convo = await prisma.conversation.findFirst({
+    where: { id: conversationId, tenantId },
+    select: { id: true },
   });
+  if (!convo) throw new WhatsappServiceError("CONVERSATION_NOT_FOUND", "Conversation not found", 404);
+  const take = Math.min(Math.max(limit, 1), 100);
+  const items = await prisma.message.findMany({
+    where: { tenantId, conversationId },
+    orderBy: { createdAt: "desc" },
+    ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    take: take + 1,
+  });
+  const hasMore = items.length > take;
+  const page = hasMore ? items.slice(0, take) : items;
+  return { items: [...page].reverse(), nextCursor: hasMore ? page[page.length - 1].id : null };
 }
 
 export async function sendConversationText(

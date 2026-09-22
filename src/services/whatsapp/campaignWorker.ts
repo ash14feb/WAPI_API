@@ -143,18 +143,21 @@ export async function processCampaign(campaignId: string, sendFn: CampaignSendFn
     }
 
     try {
+      const payload = parseCampaignPayload(campaign.parametersJson);
       for (;;) {
-        const current = await prisma.campaign.findUnique({ where: { id: campaignId } });
+        const current = await prisma.campaign.findUnique({ where: { id: campaignId }, select: { status: true } });
         if (!current || current.status !== "SENDING") break;
 
-        const recipient = await prisma.campaignRecipient.findFirst({
+        // Batch fetch PENDING recipients (was: one findFirst per loop = N queries).
+        const batch = await prisma.campaignRecipient.findMany({
           where: { campaignId, tenantId, status: "PENDING" },
           orderBy: { createdAt: "asc" },
           include: { contact: true },
+          take: 25,
         });
-        if (!recipient) break;
+        if (batch.length === 0) break;
 
-        const payload = parseCampaignPayload(campaign.parametersJson);
+        for (const recipient of batch) {
 
         try {
           const wamid = await sendFn({
@@ -209,6 +212,7 @@ export async function processCampaign(campaignId: string, sendFn: CampaignSendFn
             },
           });
         }
+        } // end for recipient batch
 
         await emitProgress(campaignId);
         await new Promise((r) => setTimeout(r, SEND_GAP_MS));
@@ -236,27 +240,31 @@ export function __isCampaignRunning(id: string): boolean {
 
 let schedulerTimer: NodeJS.Timeout | null = null;
 
-/** Picks up due SCHEDULED campaigns. Call once at server startup. */
+/** Picks up due SCHEDULED campaigns. Called by Vercel Cron (see /campaigns/tick). */
+export async function tickScheduledCampaigns(): Promise<{ started: number }> {
+  try {
+    const due = await prisma.campaign.findMany({
+      where: { status: "SCHEDULED", scheduledAt: { lte: new Date() } },
+      select: { id: true },
+      take: 10,
+    });
+    for (const c of due) {
+      await prisma.campaign.updateMany({
+        where: { id: c.id, status: "SCHEDULED" },
+        data: { status: "SENDING", startedAt: new Date() },
+      });
+      void processCampaign(c.id).catch(() => undefined);
+    }
+    return { started: due.length };
+  } catch {
+    return { started: 0 };
+  }
+}
+
+/** Local-dev only: polls due campaigns. Do NOT use on Vercel — use /campaigns/tick cron instead. */
 export function startCampaignScheduler(intervalMs = 30000): void {
   if (schedulerTimer) return;
-  const tick = async () => {
-    try {
-      const due = await prisma.campaign.findMany({
-        where: { status: "SCHEDULED", scheduledAt: { lte: new Date() } },
-        select: { id: true },
-        take: 10,
-      });
-      for (const c of due) {
-        await prisma.campaign.updateMany({
-          where: { id: c.id, status: "SCHEDULED" },
-          data: { status: "SENDING", startedAt: new Date() },
-        });
-        void processCampaign(c.id).catch(() => undefined);
-      }
-    } catch {
-      // Scheduler must never crash the server (e.g. DB down at boot).
-    }
-  };
-  schedulerTimer = setInterval(tick, intervalMs);
-  void tick();
+  schedulerTimer = setInterval(() => {
+    void tickScheduledCampaigns().catch(() => undefined);
+  }, intervalMs);
 }

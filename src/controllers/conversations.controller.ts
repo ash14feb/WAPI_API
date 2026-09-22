@@ -19,7 +19,9 @@ export async function listConversationsHandler(req: Request, res: Response): Pro
     return;
   }
   const search = typeof req.query.search === "string" ? req.query.search : undefined;
-  sendSuccess(res, await listConversations(req.auth.tenantId, search));
+  const cursor = typeof req.query.cursor === "string" ? req.query.cursor : undefined;
+  const limit = typeof req.query.limit === "string" ? Number(req.query.limit) : 25;
+  sendSuccess(res, await listConversations(req.auth.tenantId, search, cursor, limit));
 }
 
 export async function getConversationHandler(req: Request, res: Response): Promise<void> {
@@ -41,7 +43,9 @@ export async function listMessagesHandler(req: Request, res: Response): Promise<
     return;
   }
   try {
-    sendSuccess(res, await listMessages(req.auth.tenantId, req.params.id));
+    const cursor = typeof req.query.cursor === "string" ? req.query.cursor : undefined;
+    const limit = typeof req.query.limit === "string" ? Number(req.query.limit) : 50;
+    sendSuccess(res, await listMessages(req.auth.tenantId, req.params.id, cursor, limit));
   } catch (err) {
     if (err instanceof WhatsappServiceError) sendError(res, err.code, err.message, err.status);
     else sendError(res, "MESSAGES_FAILED", "Unable to load messages", 500);

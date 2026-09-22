@@ -90,6 +90,8 @@ model Contact {
 
   @@unique([tenantId, phone])
   @@index([tenantId])
+  @@index([tenantId, phone])
+  @@index([tenantId, createdAt])
   @@map("contacts")
 }
 
@@ -111,6 +113,8 @@ model Conversation {
   @@unique([tenantId, whatsappAccountId, contactId])
   @@index([tenantId])
   @@index([contactId])
+  @@index([tenantId, lastMessageAt])
+  @@index([tenantId, status])
   @@map("conversations")
 }
 
@@ -138,6 +142,9 @@ model Message {
   @@index([tenantId])
   @@index([conversationId])
   @@index([status])
+  @@index([conversationId, createdAt])
+  @@index([tenantId, createdAt])
+  @@index([tenantId, status, createdAt])
   @@map("messages")
 }
 
@@ -180,6 +187,7 @@ model Campaign {
 
   @@index([tenantId])
   @@index([status])
+  @@index([status, scheduledAt])
   @@map("campaigns")
 }
 
@@ -200,6 +208,8 @@ model CampaignRecipient {
   @@unique([tenantId, campaignId, contactId])
   @@index([campaignId])
   @@index([tenantId])
+  @@index([campaignId, status])
+  @@index([tenantId, status])
   @@map("campaign_recipients")
 }
 
@@ -219,6 +229,7 @@ model WebhookEvent {
   @@unique([tenantId, externalEventId])
   @@index([processingStatus])
   @@index([eventType])
+  @@index([tenantId])
   @@map("webhook_events")
 }
 
@@ -238,5 +249,6 @@ model AuditLog {
   @@index([tenantId])
   @@index([userId])
   @@index([action])
+  @@index([tenantId, createdAt])
   @@map("audit_logs")
 }

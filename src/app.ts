@@ -18,9 +18,24 @@ export function createApp(): express.Express {
   const app = express();
 
   app.use(helmet());
-  app.use(cors({ origin: config.frontendUrl }));
-  // Capture raw body for Meta webhook signature verification (X-Hub-Signature-256).
+  const allowedOrigins = config.frontendUrl
+    .split(",")
+    .map((o) => o.trim())
+    .filter(Boolean);
   app.use(
+    cors({
+      origin: (origin, callback) => {
+        // Allow non-browser requests (no Origin header, e.g. webhooks/health checks)
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.includes(origin)) return callback(null, true);
+        return callback(new Error(`CORS blocked for origin: ${origin}`));
+      },
+      credentials: true,
+    }),
+  );
+  // Raw body captured ONLY for webhook signature verification.
+  app.use(
+    "/api/v1/webhooks",
     express.json({
       limit: "1mb",
       verify: (req: import("express").Request & { rawBody?: Buffer }, _res, buf) => {
@@ -28,6 +43,7 @@ export function createApp(): express.Express {
       },
     }),
   );
+  app.use(express.json({ limit: "256kb" }));
 
   app.use(healthRouter);
   app.use("/api/v1", healthRouter);

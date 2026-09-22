@@ -36,6 +36,5 @@ if (process.env.MYSQL_CA_CERT) {
 export const prisma: PrismaClient =
   globalThis.__prisma ?? new PrismaClient();
 
-if (process.env.NODE_ENV !== "production") {
-  globalThis.__prisma = prisma;
-}
+// Cache on globalThis in ALL envs so Vercel warm invocations reuse the pool.
+globalThis.__prisma = prisma;

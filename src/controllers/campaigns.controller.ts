@@ -19,7 +19,9 @@ export async function listCampaignsHandler(req: Request, res: Response): Promise
     sendError(res, "UNAUTHORIZED", "Authentication required", 401);
     return;
   }
-  sendSuccess(res, await listCampaigns(req.auth.tenantId));
+  const cursor = typeof req.query.cursor === "string" ? req.query.cursor : undefined;
+  const limit = typeof req.query.limit === "string" ? Number(req.query.limit) : 25;
+  sendSuccess(res, await listCampaigns(req.auth.tenantId, cursor, limit));
 }
 
 export async function createCampaignHandler(req: Request, res: Response): Promise<void> {
@@ -46,7 +48,9 @@ export async function getCampaignHandler(req: Request, res: Response): Promise<v
     return;
   }
   try {
-    sendSuccess(res, await getCampaign(req.auth.tenantId, req.params.id));
+    const recipientCursor = typeof req.query.recipientCursor === "string" ? req.query.recipientCursor : undefined;
+    const recipientLimit = typeof req.query.recipientLimit === "string" ? Number(req.query.recipientLimit) : 50;
+    sendSuccess(res, await getCampaign(req.auth.tenantId, req.params.id, recipientCursor, recipientLimit));
   } catch (err) {
     if (err instanceof WhatsappServiceError) sendError(res, err.code, err.message, err.status);
     else sendError(res, "CAMPAIGN_FAILED", "Unable to load campaign", 500);
@@ -78,4 +82,15 @@ export async function cancelCampaignHandler(req: Request, res: Response): Promis
     if (err instanceof WhatsappServiceError) sendError(res, err.code, err.message, err.status);
     else sendError(res, "CAMPAIGN_FAILED", "Unable to cancel campaign", 500);
   }
+}
+
+/** POST /api/v1/campaigns/tick — Vercel Cron entrypoint (replaces setInterval on serverless). */
+export async function tickScheduledCampaignsHandler(req: Request, res: Response): Promise<void> {
+  const secret = process.env.CRON_SECRET;
+  if (secret && req.headers.authorization !== `Bearer ${secret}`) {
+    sendError(res, "UNAUTHORIZED", "Invalid cron secret", 401);
+    return;
+  }
+  const { tickScheduledCampaigns } = await import("../services/whatsapp/campaignWorker");
+  sendSuccess(res, await tickScheduledCampaigns());
 }
