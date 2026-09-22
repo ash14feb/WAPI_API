@@ -54,11 +54,23 @@ export async function createCampaign(tenantId: string, input: CreateCampaignInpu
   const scheduledAt = input.scheduledAt ? new Date(input.scheduledAt) : null;
   const status = scheduledAt && scheduledAt.getTime() > Date.now() ? "SCHEDULED" : "DRAFT";
 
+  // Honor the UI's selected sending number; fall back to first ACTIVE at send time.
+  let whatsappAccountId: string | null = null;
+  if (input.whatsappAccountId) {
+    const selected = await prisma.whatsappAccount.findFirst({
+      where: { id: input.whatsappAccountId, tenantId, status: "ACTIVE" },
+      select: { id: true },
+    });
+    if (!selected) throw new WhatsappServiceError("WHATSAPP_ACCOUNT_NOT_FOUND", "Selected WhatsApp number not found", 404);
+    whatsappAccountId = selected.id;
+  }
+
   return prisma.campaign.create({
     data: {
       tenantId,
       name: input.name,
       templateId: template.id,
+      whatsappAccountId,
       parametersJson: JSON.stringify({ body: parameters, header: input.headerMedia ?? null }),
       status,
       scheduledAt,

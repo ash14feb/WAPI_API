@@ -27,6 +27,7 @@ export async function listConversations(tenantId: string, search?: string, curso
     },
     include: {
       contact: { select: { id: true, phone: true, name: true, profileName: true } },
+      whatsappAccount: { select: { id: true, businessName: true, displayPhoneNumber: true } },
       messages: { orderBy: { createdAt: "desc" }, take: 1 },
     },
     orderBy: { lastMessageAt: "desc" },
@@ -54,6 +55,7 @@ export async function listConversations(tenantId: string, search?: string, curso
       status: c.status,
       lastMessageAt: c.lastMessageAt,
       contact: c.contact,
+      whatsappAccount: c.whatsappAccount,
       lastMessage: c.messages[0] ?? null,
       unreadCount: unreadByConv.get(c.id) ?? 0,
     })),
@@ -66,6 +68,7 @@ export async function getConversation(tenantId: string, id: string) {
     where: { id, tenantId },
     include: {
       contact: { select: { id: true, phone: true, name: true, profileName: true } },
+      whatsappAccount: { select: { id: true, businessName: true, displayPhoneNumber: true } },
     },
   });
   if (!conversation) throw new WhatsappServiceError("CONVERSATION_NOT_FOUND", "Conversation not found", 404);

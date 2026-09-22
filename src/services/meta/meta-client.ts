@@ -431,6 +431,141 @@ export interface SendChatMediaParams {
   filename?: string;
 }
 
+export interface ExchangeCodeParams {
+  appId: string;
+  appSecret: string;
+  code: string;
+  redirectUri?: string;
+}
+
+/** Exchange an Embedded Signup `code` for a business access token (server-side only). */
+export async function exchangeSignupCode(
+  params: ExchangeCodeParams,
+  fetchFn: FetchFn = fetch,
+): Promise<{ accessToken: string; tokenType: string; expiresIn?: number }> {
+  if (!params.appId || !params.appSecret || !params.code) {
+    throw new MetaApiError("Missing Meta app credentials or signup code", 400);
+  }
+  const qs = new URLSearchParams({
+    client_id: params.appId,
+    client_secret: params.appSecret,
+    code: params.code,
+    ...(params.redirectUri ? { redirect_uri: params.redirectUri } : {}),
+  });
+  const url = `https://graph.facebook.com/${sanitizeVersion("v21.0")}/oauth/access_token?${qs.toString()}`;
+  let res: Response;
+  try {
+    res = await fetchFn(url);
+  } catch (err) {
+    throw new MetaApiError(`Meta token exchange failed: ${err instanceof Error ? err.message : "network error"}`, 502);
+  }
+  let data: { access_token?: string; token_type?: string; expires_in?: number; error?: { message?: string; code?: number } };
+  try {
+    data = (await res.json()) as typeof data;
+  } catch {
+    throw new MetaApiError("Meta API returned invalid JSON", 502);
+  }
+  if (!res.ok || !data.access_token) {
+    throw new MetaApiError(data.error?.message ?? `Meta token exchange failed (HTTP ${res.status})`, res.status, data, data.error?.code);
+  }
+  return { accessToken: data.access_token, tokenType: data.token_type ?? "bearer", expiresIn: data.expires_in };
+}
+
+export interface WabaInfo {
+  id: string;
+  name?: string;
+}
+
+export interface WabaPhoneInfo {
+  id: string;
+  displayPhoneNumber?: string;
+  verifiedName?: string;
+}
+
+/** List WABAs owned by the client's business portfolio. */
+export async function listOwnedWabas(
+  businessId: string,
+  accessToken: string,
+  graphVersion: string,
+  fetchFn: FetchFn = fetch,
+): Promise<WabaInfo[]> {
+  const version = sanitizeVersion(graphVersion);
+  const url = `https://graph.facebook.com/${version}/${encodeURIComponent(businessId)}/owned_whatsapp_business_accounts?fields=id,name&limit=50`;
+  const res = await fetchFn(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const data = (await res.json()) as { data?: WabaInfo[]; error?: { message?: string; code?: number } };
+  if (!res.ok) throw new MetaApiError(data.error?.message ?? `Meta API error (HTTP ${res.status})`, res.status, data, data.error?.code);
+  return data.data ?? [];
+}
+
+/** List phone numbers under a WABA. */
+export async function listWabaPhones(
+  wabaId: string,
+  accessToken: string,
+  graphVersion: string,
+  fetchFn: FetchFn = fetch,
+): Promise<WabaPhoneInfo[]> {
+  const version = sanitizeVersion(graphVersion);
+  const url = `https://graph.facebook.com/${version}/${encodeURIComponent(wabaId)}/phone_numbers?fields=id,display_phone_number,verified_name&limit=50`;
+  const res = await fetchFn(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const data = (await res.json()) as { data?: WabaPhoneInfo[]; error?: { message?: string; code?: number } };
+  if (!res.ok) throw new MetaApiError(data.error?.message ?? `Meta API error (HTTP ${res.status})`, res.status, data, data.error?.code);
+  return data.data ?? [];
+}
+
+/** Subscribe your app to a client's WABA so webhooks flow to you. */
+export async function subscribeAppToWaba(
+  wabaId: string,
+  accessToken: string,
+  graphVersion: string,
+  fetchFn: FetchFn = fetch,
+): Promise<void> {
+  const version = sanitizeVersion(graphVersion);
+  const res = await fetchFn(`https://graph.facebook.com/${version}/${encodeURIComponent(wabaId)}/subscribed_apps`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => null)) as { error?: { message?: string; code?: number } } | null;
+    throw new MetaApiError(data?.error?.message ?? `Subscribe failed (HTTP ${res.status})`, res.status, data, data?.error?.code);
+  }
+}
+
+/** Register a phone number for Cloud API (triggers OTP verify for new numbers). */
+export async function registerWabaPhone(
+  phoneNumberId: string,
+  accessToken: string,
+  graphVersion: string,
+  pin?: string,
+  fetchFn: FetchFn = fetch,
+): Promise<void> {
+  const version = sanitizeVersion(graphVersion);
+  const res = await fetchFn(`https://graph.facebook.com/${version}/${encodeURIComponent(phoneNumberId)}/register`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ messaging_product: "whatsapp", ...(pin ? { pin } : {}) }),
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => null)) as { error?: { message?: string; code?: number } } | null;
+    throw new MetaApiError(data?.error?.message ?? `Register failed (HTTP ${res.status})`, res.status, data, data?.error?.code);
+  }
+}
+
+/** Fetch display name + number for profile enrichment (best-effort, never fatal). */
+export async function fetchPhoneProfile(
+  phoneNumberId: string,
+  accessToken: string,
+  graphVersion: string,
+  fetchFn: FetchFn = fetch,
+): Promise<{ verifiedName?: string; displayPhoneNumber?: string }> {
+  const version = sanitizeVersion(graphVersion);
+  const url = `https://graph.facebook.com/${version}/${encodeURIComponent(phoneNumberId)}?fields=verified_name,display_phone_number`;
+  const res = await fetchFn(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!res.ok) return {};
+  const data = (await res.json().catch(() => null)) as { verified_name?: string; display_phone_number?: string } | null;
+  if (!data) return {};
+  return { verifiedName: data.verified_name, displayPhoneNumber: data.display_phone_number };
+}
+
 export async function sendMediaMessage(
   params: SendChatMediaParams,
   fetchFn: FetchFn = fetch,

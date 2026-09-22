@@ -173,6 +173,7 @@ model Campaign {
   tenantId    String    @map("tenant_id")
   name        String
   templateId  String?   @map("template_id")
+  whatsappAccountId String? @map("whatsapp_account_id")
   parametersJson String? @map("parameters_json") @db.Text
   status      String    @default("DRAFT")
   scheduledAt DateTime? @map("scheduled_at")

@@ -123,10 +123,15 @@ export async function processCampaign(campaignId: string, sendFn: CampaignSendFn
     if (!campaign || !campaign.template) return;
     const { tenantId } = campaign;
 
-    const account = await prisma.whatsappAccount.findFirst({
-      where: { tenantId, status: "ACTIVE" },
-      orderBy: { createdAt: "asc" },
-    });
+    const account = campaign.whatsappAccountId
+      ? await prisma.whatsappAccount.findFirst({
+          where: { id: campaign.whatsappAccountId, tenantId, status: "ACTIVE" },
+          orderBy: { createdAt: "asc" },
+        })
+      : await prisma.whatsappAccount.findFirst({
+          where: { tenantId, status: "ACTIVE" },
+          orderBy: { createdAt: "asc" },
+        });
     if (!account) {
       await prisma.campaign.update({ where: { id: campaignId }, data: { status: "FAILED", completedAt: new Date() } });
       await emitProgress(campaignId);

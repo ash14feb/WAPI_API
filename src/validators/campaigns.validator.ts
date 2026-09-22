@@ -18,6 +18,7 @@ export const createCampaignSchema = z.object({
     .refine((v) => v.link ?? v.id, { message: "Header media needs link or id" })
     .optional(),
   scheduledAt: z.string().datetime({ offset: true }).optional(),
+  whatsappAccountId: z.string().min(1).max(64).optional(),
 });
 
 export type CreateCampaignInput = z.infer<typeof createCampaignSchema>;

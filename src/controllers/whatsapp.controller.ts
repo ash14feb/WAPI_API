@@ -4,6 +4,8 @@ import { prisma } from "../config/prisma";
 import { sendTemplateSchema } from "../validators/whatsapp.validator";
 import { sendTemplate, WhatsappServiceError } from "../services/whatsapp/whatsapp.service";
 import { listTemplates, syncTemplates } from "../services/whatsapp/templates.service";
+import { completeOnboarding, onboardingConfig } from "../services/whatsapp/onboarding.service";
+import { completeOnboardingSchema } from "../validators/onboarding.validator";
 import { createTemplate, createTemplateSchema } from "../services/whatsapp/templates.service";
 import { sendError, sendSuccess } from "../utils/response";
 
@@ -84,6 +86,34 @@ export async function listAccountsHandler(req: Request, res: Response): Promise<
       orderBy: { createdAt: "asc" },
     }),
   );
+}
+
+/** GET /api/v1/whatsapp/onboarding/config — public halves for the Embedded Signup popup. */
+export function onboardingConfigHandler(req: Request, res: Response): void {
+  if (!req.auth) {
+    sendError(res, "UNAUTHORIZED", "Authentication required", 401);
+    return;
+  }
+  sendSuccess(res, onboardingConfig());
+}
+
+/** POST /api/v1/whatsapp/onboarding/complete — exchange signup code, connect numbers. */
+export async function completeOnboardingHandler(req: Request, res: Response): Promise<void> {
+  if (!req.auth) {
+    sendError(res, "UNAUTHORIZED", "Authentication required", 401);
+    return;
+  }
+  const parsed = completeOnboardingSchema.safeParse(req.body);
+  if (!parsed.success) {
+    sendError(res, "VALIDATION_ERROR", "Invalid request body", 400, parsed.error.flatten());
+    return;
+  }
+  try {
+    sendSuccess(res, await completeOnboarding(req.auth.tenantId, parsed.data), 201);
+  } catch (err) {
+    if (err instanceof WhatsappServiceError) sendError(res, err.code, err.message, err.status);
+    else sendError(res, "ONBOARDING_FAILED", "Unable to complete WhatsApp onboarding", 502);
+  }
 }
 
 export async function createTemplateHandler(req: Request, res: Response): Promise<void> {

@@ -25,6 +25,8 @@ export const config = {
     graphVersion: process.env.META_GRAPH_VERSION ?? "v21.0",
     webhookVerifyToken: process.env.META_WEBHOOK_VERIFY_TOKEN ?? "",
     systemUserAccessToken: process.env.META_SYSTEM_USER_ACCESS_TOKEN ?? "",
+    configId: process.env.META_CONFIG_ID ?? "",
+    redirectUri: process.env.META_REDIRECT_URI ?? "",
   },
 };
 
