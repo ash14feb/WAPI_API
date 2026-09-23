@@ -27,6 +27,7 @@ model Tenant {
   campaignRecipients CampaignRecipient[]
   webhookEvents     WebhookEvent[]
   auditLogs         AuditLog[]
+  botRules          BotRule[]
 
   @@map("tenants")
 }
@@ -66,6 +67,7 @@ model WhatsappAccount {
 
   tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   conversations Conversation[]
+  botRules      BotRule[]
 
   @@unique([tenantId, phoneNumberId])
   @@index([tenantId])
@@ -252,4 +254,27 @@ model AuditLog {
   @@index([action])
   @@index([tenantId, createdAt])
   @@map("audit_logs")
+}
+
+model BotRule {
+  id                String   @id @default(cuid())
+  tenantId          String   @map("tenant_id")
+  whatsappAccountId String?  @map("whatsapp_account_id")
+  name              String
+  matchType         String   @default("CONTAINS") @map("match_type")
+  trigger           String   @default("")
+  replyText         String   @map("reply_text") @db.Text
+  handoff           Boolean  @default(false)
+  active            Boolean  @default(true)
+  sortOrder         Int      @default(0) @map("sort_order")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  whatsappAccount WhatsappAccount? @relation(fields: [whatsappAccountId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([tenantId, active])
+  @@index([tenantId, whatsappAccountId])
+  @@map("bot_rules")
 }
