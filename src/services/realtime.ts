@@ -27,7 +27,8 @@ export interface CampaignProgress {
 
 export type RealtimeEvent =
   | { type: "message.created" | "message.updated"; conversationId: string; message: RealtimeMessage }
-  | { type: "campaign.updated"; campaignId: string; campaign: CampaignProgress };
+  | { type: "campaign.updated"; campaignId: string; campaign: CampaignProgress }
+  | { type: "conversation.updated"; conversationId: string };
 
 type Subscriber = { tenantId: string; res: Response };
 

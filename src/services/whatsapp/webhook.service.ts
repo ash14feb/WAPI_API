@@ -1,6 +1,7 @@
 import { prisma } from "../../config/prisma";
 import { webhookPayloadSchema } from "../../validators/webhook.validator";
 import { publish, toEventMessage } from "../realtime";
+import { handleInboundBot } from "./botEngine";
 
 const STATUS_MAP: Record<string, string> = {
   sent: "SENT",
@@ -163,6 +164,19 @@ export async function processWebhookEvent(input: {
             conversationId: conversation.id,
             message: toEventMessage(created),
           });
+          // Rule-based bot reply: fire-and-forget, never blocks webhook 200.
+          const inboundText = messageText(m);
+          if (inboundText) {
+            void handleInboundBot({
+              tenantId,
+              accountId: account.id,
+              phoneNumberId: account.phoneNumberId,
+              encryptedAccessToken: account.encryptedAccessToken,
+              conversationId: conversation.id,
+              contactId: contact.id,
+              text: inboundText,
+            }).catch(() => undefined);
+          }
         } catch (err) {
           // Unique-conflict race on retry → duplicate, not an error.
           if ((err as { code?: string }).code === "P2002") duplicates += 1;

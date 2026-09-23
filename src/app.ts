@@ -12,6 +12,7 @@ import { conversationsRouter } from "./routes/conversations.routes";
 import { mediaRouter } from "./routes/media.routes";
 import { realtimeRouter } from "./routes/realtime.routes";
 import { webhookRouter } from "./routes/webhook.routes";
+import { botsRouter } from "./routes/bots.routes";
 import { errorHandler } from "./middleware/errorHandler";
 
 export function createApp(): express.Express {
@@ -56,6 +57,7 @@ export function createApp(): express.Express {
   app.use("/api/v1", mediaRouter);
   app.use("/api/v1", realtimeRouter);
   app.use("/api/v1", webhookRouter);
+  app.use("/api/v1", botsRouter);
 
   app.use(errorHandler);
 
