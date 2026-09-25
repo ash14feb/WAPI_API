@@ -15,7 +15,17 @@ export async function createCampaign(tenantId: string, input: CreateCampaignInpu
 
   const varCount = countTemplateVars(extractBodyText(template.componentsJson) ?? "");
   const parameters = input.parameters ?? [];
-  if (varCount !== parameters.length) {
+  if (template.category === "AUTHENTICATION") {
+    // Preset body carries the OTP; the single parameter is duplicated into
+    // body + button components at send time (see campaignWorker).
+    if (parameters.length !== 1) {
+      throw new WhatsappServiceError(
+        "VALIDATION_ERROR",
+        "Authentication templates need exactly 1 parameter (the OTP code)",
+        400,
+      );
+    }
+  } else if (varCount !== parameters.length) {
     throw new WhatsappServiceError(
       "VALIDATION_ERROR",
       `Template has ${varCount} variable(s); provide exactly ${varCount} shared parameter(s)`,

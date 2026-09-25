@@ -8,10 +8,12 @@ import type { SendTemplateInput } from "../../validators/whatsapp.validator";
 export class WhatsappServiceError extends Error {
   status: number;
   code: string;
-  constructor(code: string, message: string, status = 400) {
+  details?: unknown;
+  constructor(code: string, message: string, status = 400, details?: unknown) {
     super(message);
     this.code = code;
     this.status = status;
+    this.details = details;
   }
 }
 

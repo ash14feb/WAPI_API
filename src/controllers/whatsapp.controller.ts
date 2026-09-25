@@ -129,7 +129,7 @@ export async function createTemplateHandler(req: Request, res: Response): Promis
   try {
     sendSuccess(res, await createTemplate(req.auth.tenantId, parsed.data), 201);
   } catch (err) {
-    if (err instanceof WhatsappServiceError) sendError(res, err.code, err.message, err.status);
+    if (err instanceof WhatsappServiceError) sendError(res, err.code, err.message, err.status, err.details);
     else sendError(res, "TEMPLATE_CREATE_FAILED", "Unable to create template", 502);
   }
 }

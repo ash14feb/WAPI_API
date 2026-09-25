@@ -42,8 +42,11 @@ export function parseCampaignPayload(json: string | null): CampaignPayload {
   return { body: [], header: null };
 }
 
-/** Components for the send payload: header media first, then body params. */
-export function buildCampaignComponents(payload: CampaignPayload) {
+/** Components for the send payload: header media first, then body params.
+ * AUTHENTICATION templates MUST also carry the OTP a second time in a
+ * button component (type button, sub_type url, index 0) — Meta rejects
+ * the send with "Invalid parameter" otherwise. */
+export function buildCampaignComponents(payload: CampaignPayload, authOtp?: string) {
   const components: Array<Record<string, unknown>> = [];
   if (payload.header) {
     const { kind, link, id } = payload.header;
@@ -58,6 +61,14 @@ export function buildCampaignComponents(payload: CampaignPayload) {
       parameters: payload.body.map((text) => ({ type: "text", text })),
     });
   }
+  if (authOtp) {
+    components.push({
+      type: "button",
+      sub_type: "url",
+      index: "0",
+      parameters: [{ type: "text", text: authOtp }],
+    });
+  }
   return components.length > 0 ? components : undefined;
 }
 
@@ -67,6 +78,7 @@ export type CampaignSendFn = (args: {
   graphVersion: string;
   to: string;
   templateName: string;
+  templateCategory?: string | null;
   language: string;
   payload: CampaignPayload;
 }) => Promise<string>;
@@ -79,7 +91,11 @@ const defaultSend: CampaignSendFn = async (args) =>
     to: args.to,
     templateName: args.templateName,
     language: args.language,
-    components: buildCampaignComponents(args.payload) as never,
+    components: buildCampaignComponents(
+      args.payload,
+      // AUTHENTICATION templates need the OTP duplicated in a button component.
+      args.templateCategory === "AUTHENTICATION" ? args.payload.body[0] : undefined,
+    ) as never,
   });
 
 async function emitProgress(campaignId: string): Promise<void> {
@@ -171,6 +187,7 @@ export async function processCampaign(campaignId: string, sendFn: CampaignSendFn
             graphVersion: config.meta.graphVersion,
             to: recipient.contact.phone,
             templateName: campaign.template.name,
+            templateCategory: campaign.template.category,
             language: campaign.template.language,
             payload,
           });
