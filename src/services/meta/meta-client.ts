@@ -319,7 +319,11 @@ export async function uploadSendMedia(
   form.append("messaging_product", "whatsapp");
   form.append(
     "file",
-    new Blob([params.data], { type: params.mimeType }),
+    // Copy to a fresh ArrayBuffer-backed Uint8Array so TS's BlobPart
+    // (ArrayBufferView<ArrayBuffer>) type is satisfied on Render's build.
+    new Blob([new Uint8Array(params.data).buffer as ArrayBuffer], {
+      type: params.mimeType,
+    }),
     params.fileName,
   );
 
