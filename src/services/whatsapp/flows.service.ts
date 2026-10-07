@@ -87,7 +87,12 @@ export async function publishLocalFlow(tenantId: string, id: string, whatsappAcc
   } catch (err) {
     const message = err instanceof Error ? err.message : "Meta publish failed";
     const status = (err as { status?: number }).status ?? 502;
-    throw new WhatsappServiceError("FLOW_PUBLISH_FAILED", `Meta: ${message}`, status);
+    const metaBody = (err as { metaBody?: unknown }).metaBody;
+    const metaCode = (err as { metaCode?: number }).metaCode;
+    const detail = metaBody !== undefined && metaBody !== null
+      ? ` | meta_code=${metaCode ?? "?"} body=${JSON.stringify(metaBody).slice(0, 1000)}`
+      : "";
+    throw new WhatsappServiceError("FLOW_PUBLISH_FAILED", `Meta: ${message}${detail}`, status);
   } finally {
     // accessToken is a local copy; nothing to clear.
   }

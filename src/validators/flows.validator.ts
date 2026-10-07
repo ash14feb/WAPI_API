@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+export const FLOW_CATEGORIES = ["SIGN_UP", "SIGN_IN", "APPOINTMENT_BOOKING", "LEAD_GENERATION", "CONTACT_US", "CUSTOMER_SUPPORT", "SURVEY", "SHOPPING", "LOYALTY", "DATA_APPEND", "OTHER"] as const;
+
+// Meta flow names behave like template names: lowercase snake_case.
+export const flowNameSchema = z.string().min(1).max(100).regex(/^[a-z0-9_]+$/, "Flow name must be lowercase letters, numbers, underscores only (e.g. cod_confirm_form)");
+
 const fieldSchema = z.object({
   kind: z.enum(["text", "textarea", "number", "email", "dropdown", "checkbox", "radio", "date"]),
   label: z.string().min(1).max(120),
@@ -16,13 +21,13 @@ const screenSchema = z.object({
 });
 
 export const createFlowSchema = z.object({
-  name: z.string().min(1).max(100),
-  categories: z.array(z.string().min(1).max(40)).max(5).optional(),
+  name: flowNameSchema,
+  categories: z.array(z.enum(FLOW_CATEGORIES as unknown as [string, ...string[]])).max(5).optional(),
   screens: z.array(screenSchema).min(1).max(10),
 });
 
 export const updateFlowSchema = z.object({
-  name: z.string().min(1).max(100).optional(),
+  name: flowNameSchema.optional(),
   screens: z.array(screenSchema).min(1).max(10).optional(),
 });
 
