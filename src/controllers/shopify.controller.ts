@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
 import jwt from "jsonwebtoken";
 import { z } from "zod";
-import { config } from "../config/env";
+import { config, primaryFrontendUrl } from "../config/env";
 import { sendError, sendSuccess } from "../utils/response";
 import { normalizeShopDomain, verifyShopifyHmac, verifyShopifyOAuthQuery } from "../utils/shopify";
 import { exchangeCode, getConnection, installUrl, notifyOrderEvent, removeConnection, saveConnection } from "../services/shopify/shopify.service";
@@ -57,9 +57,9 @@ export async function shopifyCallback(req: Request, res: Response): Promise<void
     const tok = await exchangeCode(shop, q.code);
     await saveConnection(tenantIdFromState, shop, tok.access_token, tok.scope ?? config.shopify.scopes);
     // TODO: register webhooks via Admin API (orders/create, orders/fulfilled, checkouts/update) once token saved.
-    res.redirect(`${config.frontendUrl}/integrations?shopify=connected&shop=${shop}`);
+    res.redirect(`${primaryFrontendUrl()}/integrations?shopify=connected&shop=${shop}`);
   } catch {
-    res.redirect(`${config.frontendUrl}/integrations?shopify=error`);
+    res.redirect(`${primaryFrontendUrl()}/integrations?shopify=error`);
   }
 }
 
@@ -74,13 +74,27 @@ export async function shopifyDisconnect(req: Request, res: Response): Promise<vo
 /** POST /api/v1/integrations/shopify/webhooks (public, HMAC-verified). */
 export async function shopifyWebhook(req: Request, res: Response): Promise<void> {
   const secret = config.shopify.apiSecret;
+  const webhookSecret = (config.shopify as { webhookSecret?: string }).webhookSecret ?? "";
+  const topic = (req.headers["x-shopify-topic"] as string | undefined) ?? "";
+  const shop = (req.headers["x-shopify-shop-domain"] as string | undefined) ?? "";
   const raw = (req as Request & { rawBody?: Buffer }).rawBody ?? Buffer.from(JSON.stringify(req.body ?? {}));
-  if (!verifyShopifyHmac(raw, req.headers["x-shopify-hmac-sha256"] as string | undefined, secret)) {
+  const sig = req.headers["x-shopify-hmac-sha256"] as string | undefined;
+  const ok = verifyShopifyHmac(raw, sig, secret) || (webhookSecret ? verifyShopifyHmac(raw, sig, webhookSecret) : false);
+  if (!ok) {
+    try {
+      await prisma.webhookEvent.create({
+        data: {
+          eventType: `shopify:${topic || "unknown"}:auth_failed`,
+          externalEventId: `shopify:authfail:${Date.now()}`,
+          payloadJson: JSON.stringify({ shop, topic, hint: "HMAC mismatch — check SHOPIFY_API_SECRET" }).slice(0, 2000),
+          processingStatus: "FAILED",
+          errorMessage: "HMAC mismatch",
+        },
+      });
+    } catch { /* ignore */ }
     sendError(res, "WEBHOOK_SIGNATURE_INVALID", "Invalid Shopify signature", 403);
     return;
   }
-  const topic = (req.headers["x-shopify-topic"] as string | undefined) ?? "";
-  const shop = (req.headers["x-shopify-shop-domain"] as string | undefined) ?? "";
   // Resolve tenant by shop domain; ack fast regardless.
   let tid: string | null = null;
   try {
@@ -88,7 +102,52 @@ export async function shopifyWebhook(req: Request, res: Response): Promise<void>
     tid = row?.tenantId ?? null;
   } catch { /* table may not exist yet — still ack 200 */ }
   res.status(200).json({ ok: true });
+  // Persist every webhook for DB visibility (best-effort, never blocks ack).
+  const externalId = String((req.body as any)?.id ?? (req.headers["x-shopify-webhook-id"] as string | undefined) ?? `${topic}:${Date.now()}`);
+  const payloadJson = JSON.stringify(req.body ?? {}).slice(0, 50000);
+  try {
+    if (tid) {
+      await prisma.webhookEvent.upsert({
+        where: { tenantId_externalEventId: { tenantId: tid, externalEventId: `shopify:${externalId}` } },
+        update: { processingStatus: "PROCESSED", payloadJson },
+        create: {
+          tenantId: tid,
+          eventType: `shopify:${topic || "unknown"}`,
+          externalEventId: `shopify:${externalId}`,
+          payloadJson,
+          processingStatus: "PROCESSED",
+        },
+      });
+    } else {
+      await prisma.webhookEvent.create({
+        data: {
+          eventType: `shopify:${topic || "unknown"}`,
+          externalEventId: `shopify:${externalId}`,
+          payloadJson,
+          processingStatus: "UNRESOLVED",
+          errorMessage: `No ACTIVE connection for shop ${shop}`,
+        },
+      });
+    }
+  } catch { /* table/unique edge — ignore */ }
   if (!tid) return;
   const kind = topic === "orders/create" ? "ORDER_CREATED" : topic === "orders/fulfilled" ? "ORDER_FULFILLED" : topic.startsWith("checkouts/") ? "CHECKOUT_ABANDONED" : null;
   if (kind) void notifyOrderEvent(tid, kind, req.body);
+}
+
+/** GET /api/v1/integrations/shopify/events (auth) — recent webhook deliveries for UI. */
+export async function shopifyEvents(req: Request, res: Response): Promise<void> {
+  const tid = tenantId(req);
+  if (!tid) { sendError(res, "UNAUTHORIZED", "Missing auth", 401); return; }
+  try {
+    const rows = await prisma.webhookEvent.findMany({
+      where: { eventType: { startsWith: "shopify:" }, OR: [{ tenantId: tid }, { tenantId: null }] },
+      orderBy: { receivedAt: "desc" },
+      take: 20,
+      select: { eventType: true, externalEventId: true, processingStatus: true, errorMessage: true, receivedAt: true },
+    });
+    sendSuccess(res, { events: rows });
+  } catch {
+    sendSuccess(res, { events: [] });
+  }
 }

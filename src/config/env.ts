@@ -13,8 +13,8 @@ function requireEnv(name: string, fallback?: string): string {
 export const config = {
   nodeEnv: process.env.NODE_ENV ?? "development",
   port: Number(process.env.PORT ?? 5000),
-  frontendUrl: process.env.FRONTEND_URL ?? "http://localhost:5173",
-  apiUrl: process.env.API_URL ?? "http://localhost:5000",
+  frontendUrl: (process.env.FRONTEND_URL || "").trim() || "http://localhost:5173",
+  apiUrl: (process.env.API_URL || "").trim().replace(/\/+$/, "") || "http://localhost:5000",
   databaseUrl: process.env.DATABASE_URL ?? "",
   jwtAccessSecret: process.env.JWT_ACCESS_SECRET ?? "",
   jwtRefreshSecret: process.env.JWT_REFRESH_SECRET ?? "",
@@ -33,8 +33,13 @@ export const config = {
     apiSecret: process.env.SHOPIFY_API_SECRET ?? "",
     scopes: process.env.SHOPIFY_SCOPES ?? "read_orders,read_customers,read_checkouts,read_fulfillments",
     appUrl: process.env.SHOPIFY_APP_URL ?? "",
+    webhookSecret: process.env.SHOPIFY_WEBHOOK_SECRET ?? "",
   },
 };
+
+export function primaryFrontendUrl(): string {
+  return config.frontendUrl.split(",")[0].trim().replace(/\/+$/, "");
+}
 
 export function validateRequiredConfig(): void {
   if (!config.databaseUrl) throw new Error("DATABASE_URL is not set");

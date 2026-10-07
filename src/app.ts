@@ -14,6 +14,8 @@ import { realtimeRouter } from "./routes/realtime.routes";
 import { webhookRouter } from "./routes/webhook.routes";
 import { botsRouter } from "./routes/bots.routes";
 import { shopifyRouter } from "./routes/shopify.routes";
+import { instagramRouter } from "./routes/instagram.routes";
+import { flowsRouter } from "./routes/flows.routes";
 import { errorHandler } from "./middleware/errorHandler";
 
 export function createApp(): express.Express {
@@ -69,6 +71,8 @@ export function createApp(): express.Express {
   app.use("/api/v1", webhookRouter);
   app.use("/api/v1", botsRouter);
   app.use("/api/v1", shopifyRouter);
+  app.use("/api/v1", instagramRouter);
+  app.use("/api/v1", flowsRouter);
 
   app.use(errorHandler);
 

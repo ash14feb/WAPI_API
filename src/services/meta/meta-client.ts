@@ -590,3 +590,194 @@ export async function sendMediaMessage(
     fetchFn,
   );
 }
+
+// ---------- WhatsApp Flows (static, no data-exchange endpoint) ----------
+
+async function graphWrite(
+  url: string,
+  accessToken: string,
+  body: unknown,
+  fetchFn: FetchFn,
+): Promise<unknown> {
+  let res: Response;
+  try {
+    res = await fetchFn(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    throw new MetaApiError(`Meta request failed: ${err instanceof Error ? err.message : "network error"}`, 502);
+  }
+  let data: unknown = null;
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
+  }
+  if (!res.ok) {
+    const errObj = data && typeof data === "object" && "error" in data
+      ? (data as { error?: { message?: string; code?: number } }).error
+      : undefined;
+    throw new MetaApiError(errObj?.message ?? `Meta API error (HTTP ${res.status})`, res.status, data, errObj?.code);
+  }
+  return data;
+}
+
+async function graphRead(url: string, accessToken: string, fetchFn: FetchFn): Promise<unknown> {
+  let res: Response;
+  try {
+    res = await fetchFn(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  } catch (err) {
+    throw new MetaApiError(`Meta request failed: ${err instanceof Error ? err.message : "network error"}`, 502);
+  }
+  let data: unknown = null;
+  try {
+    data = await res.json();
+  } catch {
+    throw new MetaApiError("Meta API returned invalid JSON", 502);
+  }
+  if (!res.ok) {
+    const errObj = data && typeof data === "object" && "error" in data
+      ? (data as { error?: { message?: string; code?: number } }).error
+      : undefined;
+    throw new MetaApiError(errObj?.message ?? `Meta API error (HTTP ${res.status})`, res.status, data, errObj?.code);
+  }
+  return data;
+}
+
+export interface FlowWriteParams {
+  wabaId: string;
+  accessToken: string;
+  graphVersion: string;
+  name: string;
+  categories?: string[];
+  /** Flow JSON string — with publish:true creates a PUBLISHED flow in one call. */
+  flowJson?: string;
+  publish?: boolean;
+}
+
+export interface FlowRefParams {
+  flowId: string;
+  accessToken: string;
+  graphVersion: string;
+}
+
+/** POST /{waba-id}/flows — creates a flow (DRAFT, or PUBLISHED when flowJson+publish given). */
+export async function createFlow(params: FlowWriteParams, fetchFn: FetchFn = fetch): Promise<{ id: string }> {
+  const version = sanitizeVersion(params.graphVersion);
+  const url = `https://graph.facebook.com/${version}/${encodeURIComponent(params.wabaId)}/flows`;
+  const body: Record<string, unknown> = {
+    name: params.name,
+    categories: params.categories?.length ? params.categories : ["OTHER"],
+  };
+  if (params.flowJson) body.flow_json = params.flowJson;
+  if (params.publish) body.publish = true;
+  const data = (await graphWrite(url, params.accessToken, body, fetchFn)) as { id?: string };
+  if (!data.id) throw new MetaApiError("Meta API returned no flow id", 502, data);
+  return { id: data.id };
+}
+
+/** GET /{waba-id}/flows — list flows with status. */
+export async function listFlows(
+  params: Omit<FlowWriteParams, "name" | "categories">,
+  fetchFn: FetchFn = fetch,
+): Promise<unknown[]> {
+  const version = sanitizeVersion(params.graphVersion);
+  const url =
+    `https://graph.facebook.com/${version}/${encodeURIComponent(params.wabaId)}` +
+    `/flows?fields=id,name,status,categories,validation_errors&limit=100`;
+  const data = (await graphRead(url, params.accessToken, fetchFn)) as { data?: unknown[] };
+  return Array.isArray(data.data) ? data.data : [];
+}
+
+/**
+ * POST /{flow-id}/assets — uploads static FLOW_JSON.
+ * Per docs the file MUST be multipart/form-data (name=flow.json). A JSON
+ * body is rejected with (#100) Invalid parameter.
+ */
+export async function uploadFlowJson(
+  params: FlowRefParams & { flowJson: string },
+  fetchFn: FetchFn = fetch,
+): Promise<void> {
+  const version = sanitizeVersion(params.graphVersion);
+  const url = `https://graph.facebook.com/${version}/${encodeURIComponent(params.flowId)}/assets`;
+  const form = new FormData();
+  form.append("file", new Blob([params.flowJson], { type: "application/json" }), "flow.json");
+  form.append("name", "flow.json");
+  form.append("asset_type", "FLOW_JSON");
+  let res: Response;
+  try {
+    res = await fetchFn(url, { method: "POST", headers: { Authorization: `Bearer ${params.accessToken}` }, body: form });
+  } catch (err) {
+    throw new MetaApiError(`Meta request failed: ${err instanceof Error ? err.message : "network error"}`, 502);
+  }
+  let data: { success?: boolean; validation_errors?: { message?: string; error?: string }[]; error?: { message?: string; code?: number } } | null = null;
+  try {
+    data = (await res.json()) as { success?: boolean; validation_errors?: { message?: string; error?: string }[]; error?: { message?: string; code?: number } };
+  } catch {
+    throw new MetaApiError("Meta API returned invalid JSON", 502);
+  }
+  if (!res.ok) {
+    throw new MetaApiError(data?.error?.message ?? `Meta API error (HTTP ${res.status})`, res.status, data, data?.error?.code);
+  }
+  const errs: { message?: string; error?: string }[] = data?.validation_errors ?? [];
+  if (errs.length > 0) {
+    throw new MetaApiError(`Flow JSON invalid: ${errs.map((e: { message?: string; error?: string }) => e.message ?? e.error ?? "error").join("; ").slice(0, 800)}`, 422, data);
+  }
+}
+
+/** POST /{flow-id}/publish — publishes a DRAFT flow. */
+export async function publishFlow(params: FlowRefParams, fetchFn: FetchFn = fetch): Promise<void> {
+  const version = sanitizeVersion(params.graphVersion);
+  const url = `https://graph.facebook.com/${version}/${encodeURIComponent(params.flowId)}/publish`;
+  await graphWrite(url, params.accessToken, {}, fetchFn);
+}
+
+export interface SendFlowParams {
+  phoneNumberId: string;
+  accessToken: string;
+  graphVersion: string;
+  to: string;
+  flowId: string;
+  cta: string;
+  flowToken: string;
+  headerText?: string;
+  bodyText: string;
+  footerText?: string;
+  firstScreen: string;
+}
+
+/** Sends an interactive Flow message (static navigate to first screen). */
+export async function sendFlowMessage(params: SendFlowParams, fetchFn: FetchFn = fetch): Promise<string> {
+  const version = sanitizeVersion(params.graphVersion);
+  const url = `https://graph.facebook.com/${version}/${encodeURIComponent(params.phoneNumberId)}/messages`;
+  return postMessagesApi(
+    url,
+    params.accessToken,
+    {
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to: params.to,
+      type: "interactive",
+      interactive: {
+        type: "flow",
+        ...(params.headerText ? { header: { type: "text", text: params.headerText } } : {}),
+        body: { text: params.bodyText },
+        ...(params.footerText ? { footer: { text: params.footerText } } : {}),
+        action: {
+          name: "flow",
+          parameters: {
+            flow_message_version: "3",
+            flow_id: params.flowId,
+            flow_cta: params.cta,
+            flow_action: "navigate",
+            navigate_screen: params.firstScreen,
+            flow_token: params.flowToken,
+          },
+        },
+      },
+    },
+    fetchFn,
+  );
+}
