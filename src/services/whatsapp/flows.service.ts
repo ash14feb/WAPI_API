@@ -158,11 +158,6 @@ export async function sendFlow(tenantId: string, id: string, input: SendFlowInpu
   const account = await resolveAccount(tenantId, input.whatsappAccountId);
   if (!account) throw new WhatsappServiceError("WHATSAPP_ACCOUNT_NOT_FOUND", "No WhatsApp account found for tenant", 404);
   const accessToken = tokenOf(account.encryptedAccessToken);
-  let firstScreen = "COMPLETE";
-  try {
-    const parsed = JSON.parse(flow.flowJson) as { screens?: { id?: string }[] };
-    firstScreen = parsed.screens?.[0]?.id ?? "COMPLETE";
-  } catch { /* fallback */ }
   const flowToken = `${flow.id}:${Date.now()}`;
   try {
     const whatsappMessageId = await sendFlowMessage({
@@ -176,7 +171,6 @@ export async function sendFlow(tenantId: string, id: string, input: SendFlowInpu
       headerText: input.headerText,
       bodyText: input.bodyText,
       footerText: input.footerText,
-      firstScreen,
     });
     // Record send for response attribution (phone + 24h window match on reply).
     await prisma.webhookEvent.create({

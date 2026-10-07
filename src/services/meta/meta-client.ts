@@ -761,10 +761,11 @@ export interface SendFlowParams {
   headerText?: string;
   bodyText: string;
   footerText?: string;
-  firstScreen: string;
 }
 
-/** Sends an interactive Flow message (static navigate to first screen). */
+/** Sends an interactive Flow message opening the flow at its first screen.
+ * Per current docs only flow_message_version + flow_cta + flow_id/flow_name
+ * (+ flow_token) are required; extra keys like navigate_screen are rejected. */
 export async function sendFlowMessage(params: SendFlowParams, fetchFn: FetchFn = fetch): Promise<string> {
   const version = sanitizeVersion(params.graphVersion);
   const url = `https://graph.facebook.com/${version}/${encodeURIComponent(params.phoneNumberId)}/messages`;
@@ -787,8 +788,6 @@ export async function sendFlowMessage(params: SendFlowParams, fetchFn: FetchFn =
             flow_message_version: "3",
             flow_id: params.flowId,
             flow_cta: params.cta,
-            flow_action: "navigate",
-            navigate_screen: params.firstScreen,
             flow_token: params.flowToken,
           },
         },

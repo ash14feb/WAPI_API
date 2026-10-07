@@ -18,7 +18,7 @@ const fieldSchema = z.object({
 });
 
 const screenSchema = z.object({
-  id: z.string().min(1).max(64),
+  id: metaId,
   title: z.string().min(1).max(120),
   fields: z.array(fieldSchema).max(20),
 });
